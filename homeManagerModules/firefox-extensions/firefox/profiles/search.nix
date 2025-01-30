@@ -7,8 +7,9 @@
   modulePath,
   profilePath,
 }:
-with lib; let
-  jsonFormat = pkgs.formats.json {};
+with lib;
+let
+  jsonFormat = pkgs.formats.json { };
 
   # Map of nice field names to internal field names.
   # This is intended to be exhaustive and should be
@@ -33,13 +34,15 @@ with lib; let
       searchForm = "__searchForm";
     };
 
-  processCustomEngineInput = input:
-    (removeAttrs input ["icon"])
+  processCustomEngineInput =
+    input:
+    (removeAttrs input [ "icon" ])
     // optionalAttrs (input ? icon) {
       # Convenience to specify absolute path to icon
       iconURL = "file://${input.icon}";
     }
-    // (optionalAttrs (input ? iconUpdateURL) {
+    // (
+      optionalAttrs (input ? iconUpdateURL) {
         # Convenience to default iconURL to iconUpdateURL so
         # the icon is immediately downloaded from the URL
         iconURL = input.iconURL or input.iconUpdateURL;
@@ -49,48 +52,64 @@ with lib; let
         # are unique identifiers that are generally formatted
         # like: [source]/path/to/engine.xml
         loadPath = "[home-manager]/${
-          concatStringsSep "." (map strings.escapeNixIdentifier
-            (modulePath ++ ["engines" input.name]))
+          concatStringsSep "." (
+            map strings.escapeNixIdentifier (
+              modulePath
+              ++ [
+                "engines"
+                input.name
+              ]
+            )
+          )
         }";
-      });
+      }
+    );
 
-  processEngineInput = name: input: let
-    requiredInput = {
-      inherit name;
-      isAppProvided =
-        input.isAppProvided or removeAttrs input ["metaData"]
-        == {};
-      metaData = input.metaData or {};
-    };
-  in
-    if requiredInput.isAppProvided
-    then requiredInput
-    else processCustomEngineInput (input // requiredInput);
+  processEngineInput =
+    name: input:
+    let
+      requiredInput = {
+        inherit name;
+        isAppProvided = input.isAppProvided or removeAttrs input [ "metaData" ] == { };
+        metaData = input.metaData or { };
+      };
+    in
+    if requiredInput.isAppProvided then
+      requiredInput
+    else
+      processCustomEngineInput (input // requiredInput);
 
-  buildEngineConfig = name: input:
+  buildEngineConfig =
+    name: input:
     mapAttrs' (name: value: {
       name = internalFieldNames.${name} or name;
       inherit value;
     }) (processEngineInput name input);
 
-  sortEngineConfigs = configs: let
-    buildEngineConfigWithOrder = order: name: let
-      config =
-        configs.${name}
-        or {
-          _name = name;
-          _isAppProvided = true;
-          _metaData = {};
+  sortEngineConfigs =
+    configs:
+    let
+      buildEngineConfigWithOrder =
+        order: name:
+        let
+          config =
+            configs.${name} or {
+              _name = name;
+              _isAppProvided = true;
+              _metaData = { };
+            };
+        in
+        config
+        // {
+          _metaData = config._metaData // {
+            inherit order;
+          };
         };
+
+      engineConfigsWithoutOrder = attrValues (removeAttrs configs config.order);
+
+      sortedEngineConfigs = (imap buildEngineConfigWithOrder config.order) ++ engineConfigsWithoutOrder;
     in
-      config // {_metaData = config._metaData // {inherit order;};};
-
-    engineConfigsWithoutOrder = attrValues (removeAttrs configs config.order);
-
-    sortedEngineConfigs =
-      (imap buildEngineConfigWithOrder config.order)
-      ++ engineConfigsWithoutOrder;
-  in
     sortedEngineConfigs;
 
   engineInput =
@@ -98,10 +117,10 @@ with lib; let
     // {
       # Infer config.default as an app provided
       # engine if it's not in config.engines
-      ${config.default} = config.engines.${config.default} or {};
+      ${config.default} = config.engines.${config.default} or { };
     }
     // {
-      ${config.privateDefault} = config.engines.${config.privateDefault} or {};
+      ${config.privateDefault} = config.engines.${config.privateDefault} or { };
     };
 
   settings = {
@@ -118,7 +137,7 @@ with lib; let
         privateHash = "@privateHash@";
       }
       // {
-        useSavedOrder = config.order != [];
+        useSavedOrder = config.order != [ ];
       };
   };
 
@@ -134,63 +153,62 @@ with lib; let
     + "from outside of @appName@ is a malicious act, and will be responded "
     + "to accordingly.";
 
-  salt =
-    if config.default != null
-    then profilePath + config.default + disclaimer
-    else null;
+  salt = if config.default != null then profilePath + config.default + disclaimer else null;
 
   privateSalt =
-    if config.privateDefault != null
-    then profilePath + config.privateDefault + disclaimer
-    else null;
+    if config.privateDefault != null then profilePath + config.privateDefault + disclaimer else null;
 
   appNameVariable =
-    if package == null
-    then "appName=${lib.escapeShellArg appName}"
-    else ''
-      applicationIni="$(find ${lib.escapeShellArg package} -maxdepth 3 -path ${
-        lib.escapeShellArg package
-      }'/lib/*/application.ini' -print -quit)"
-      if test -n "$applicationIni"; then
-        appName="$(sed -n 's/^Name=\(.*\)$/\1/p' "$applicationIni" | head -n1)"
-      else
-        appName=${lib.escapeShellArg appName}
-      fi
-    '';
+    if package == null then
+      "appName=${lib.escapeShellArg appName}"
+    else
+      ''
+        applicationIni="$(find ${lib.escapeShellArg package} -maxdepth 3 -path ${lib.escapeShellArg package}'/lib/*/application.ini' -print -quit)"
+        if test -n "$applicationIni"; then
+          appName="$(sed -n 's/^Name=\(.*\)$/\1/p' "$applicationIni" | head -n1)"
+        else
+          appName=${lib.escapeShellArg appName}
+        fi
+      '';
 
   file =
-    pkgs.runCommand "search.json.mozlz4" {
-      nativeBuildInputs = with pkgs; [mozlz4a openssl];
-      json = builtins.toJSON settings;
-      inherit salt privateSalt;
-    } ''
-      ${appNameVariable}
+    pkgs.runCommand "search.json.mozlz4"
+      {
+        nativeBuildInputs = with pkgs; [
+          mozlz4a
+          openssl
+        ];
+        json = builtins.toJSON settings;
+        inherit salt privateSalt;
+      }
+      ''
+        ${appNameVariable}
 
-      salt=''${salt//@appName@/"$appName"}
-      privateSalt=''${privateSalt//@appName@/"$appName"}
+        salt=''${salt//@appName@/"$appName"}
+        privateSalt=''${privateSalt//@appName@/"$appName"}
 
-      if [[ -n $salt ]]; then
-        export hash=$(echo -n "$salt" | openssl dgst -sha256 -binary | base64)
-        export privateHash=$(echo -n "$privateSalt" | openssl dgst -sha256 -binary | base64)
-        mozlz4a <(substituteStream json search.json.in --subst-var hash --subst-var privateHash) "$out"
-      else
-        mozlz4a <(echo "$json") "$out"
-      fi
-    '';
-in {
-  imports = [(pkgs.path + "/nixos/modules/misc/meta.nix")];
+        if [[ -n $salt ]]; then
+          export hash=$(echo -n "$salt" | openssl dgst -sha256 -binary | base64)
+          export privateHash=$(echo -n "$privateSalt" | openssl dgst -sha256 -binary | base64)
+          mozlz4a <(substituteStream json search.json.in --subst-var hash --subst-var privateHash) "$out"
+        else
+          mozlz4a <(echo "$json") "$out"
+        fi
+      '';
+in
+{
+  imports = [ (pkgs.path + "/nixos/modules/misc/meta.nix") ];
 
-  meta.maintainers = with maintainers; [kira-bruneau];
+  meta.maintainers = with maintainers; [ kira-bruneau ];
 
   options = {
     enable = mkOption {
       type = with types; bool;
       default =
-        config.default
-        != null
+        config.default != null
         || config.privateDefault != null
-        || config.order != []
-        || config.engines != {};
+        || config.order != [ ]
+        || config.engines != { };
       internal = true;
     };
 
@@ -227,8 +245,11 @@ in {
 
     order = mkOption {
       type = with types; uniq (listOf str);
-      default = [];
-      example = ["DuckDuckGo" "Google"];
+      default = [ ];
+      example = [
+        "DuckDuckGo"
+        "Google"
+      ];
       description = ''
         The order the search engines are listed in. Any engines that
         aren't included in this list will be listed after these in an
@@ -238,7 +259,7 @@ in {
 
     engines = mkOption {
       type = with types; attrsOf (attrsOf jsonFormat.type);
-      default = {};
+      default = { };
       example = literalExpression ''
         {
           "Nix Packages" = {
